@@ -1,0 +1,158 @@
+import os
+import argparse
+import pandas as pd
+from tkinter import Tk, filedialog
+
+# Columns to extract (in this exact order in final output)
+TARGET_COLUMNS = [
+    "First Name",
+    "Last Name",
+    "Email",
+    "Phone Number",
+    "Company Name",
+    "Website",
+    "LinkedIn Profile",
+    "Location",
+    "Status",
+    "Category",
+    "ESP Type",
+    "Current Sequence Number",
+    "title",
+    "emailType",
+    "informalAddress",
+    "informalIndustry",
+]
+
+# Columns to check duplicates against (case-insensitive)
+DEDUPLICATE_BY = ["email"]  # or ["name", "email"]
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description="Merge selected CSVs and deduplicate by columns")
+    p.add_argument(
+        "--output",
+        "-o",
+        help="Output path for merged CSV (default: ~/Downloads/merged_output.csv)",
+        default=os.path.expanduser("~/Downloads/merged_output.csv"),
+    )
+    p.add_argument(
+        "--files",
+        "-f",
+        nargs="*",
+        help="List of CSV files to merge (bypass the file dialog).",
+    )
+    return p.parse_args()
+
+
+def _normalize(s: str) -> str:
+    """Normalize column names for fuzzy matching: lowercase and remove non-alphanumerics."""
+    return "".join(ch for ch in s.lower().strip() if ch.isalnum())
+
+
+def main():
+    args = parse_args()
+
+    # Ensure output directory exists
+    output_path = os.path.expanduser(args.output)
+    output_dir = os.path.dirname(output_path) or "."
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Gather file paths
+    if args.files:
+        file_paths = [os.path.expanduser(f) for f in args.files]
+        missing = [f for f in file_paths if not os.path.exists(f)]
+        if missing:
+            print(f"The following files were not found and will be skipped: {missing}")
+            file_paths = [f for f in file_paths if os.path.exists(f)]
+    else:
+        root = Tk()
+        root.withdraw()
+        print("Select CSV files to merge...")
+        file_paths = list(filedialog.askopenfilenames(title="Select CSV Files", filetypes=[("CSV files", "*.csv")]))
+        root.destroy()
+
+    if not file_paths:
+        print("No files selected.")
+        return
+
+    merged_data = []
+
+    for file in file_paths:
+        try:
+            df = pd.read_csv(file, dtype=str, low_memory=False, on_bad_lines="skip")
+        except Exception as e:
+            print(f"Error reading {file}: {e}")
+            continue
+
+        # Build lookup of normalized column -> original column name
+        col_map = {_normalize(c): c for c in df.columns}
+
+        extracted = pd.DataFrame()
+        mapping = {}
+
+        for target in TARGET_COLUMNS:
+            chosen = None
+            if target in df.columns:
+                chosen = target
+            else:
+                matches = [c for c in df.columns if c.lower() == target.lower()]
+                if matches:
+                    chosen = matches[0]
+                else:
+                    norm = _normalize(target)
+                    if norm in col_map:
+                        chosen = col_map[norm]
+                    else:
+                        partial = None
+                        for nc, oc in col_map.items():
+                            if norm and (norm in nc or nc in norm):
+                                partial = oc
+                                break
+                        if partial:
+                            chosen = partial
+
+            if chosen is not None:
+                # fillna BEFORE astype — astype(str) converts NaN to the string 'nan'
+                # so do fillna("") first to keep blanks empty.
+                series = df[chosen].fillna("").astype(str)
+                extracted[target] = series.reset_index(drop=True)
+                mapping[target] = chosen
+            else:
+                extracted[target] = [""] * len(df)
+                mapping[target] = None
+
+        merged_data.append(extracted)
+        mapped_info = ", ".join(f"{t}-> {mapping[t] or 'MISSING'}" for t in TARGET_COLUMNS)
+        print(f"Processed: {file} | Columns: {mapped_info}")
+
+    if not merged_data:
+        print("No data merged. Exiting.")
+        return
+
+    final_df = pd.concat(merged_data, ignore_index=True)
+
+    dedupe_actual = []
+    for d in DEDUPLICATE_BY:
+        matches = [c for c in final_df.columns if c.lower() == d.lower()]
+        if matches:
+            dedupe_actual.extend(matches)
+        else:
+            print(f"Warning: dedup column '{d}' not found in final data; skipping that key.")
+
+    if dedupe_actual:
+        final_df.drop_duplicates(subset=dedupe_actual, keep="first", inplace=True)
+    else:
+        print("No valid dedupe columns found; skipping deduplication.")
+
+    for c in TARGET_COLUMNS:
+        if c not in final_df.columns:
+            final_df[c] = ""
+    final_df = final_df[TARGET_COLUMNS]
+
+    final_df.to_csv(output_path, index=False)
+
+    print(f"\nDone! Merged file saved as: {output_path}")
+
+
+if __name__ == "__main__":
+    main()

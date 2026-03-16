@@ -1,0 +1,28 @@
+import sys
+
+def dedupe_words(input_text: str) -> str:
+    """
+    Takes a string with words separated by line breaks,
+    removes duplicates while keeping original order,
+    and returns them in 'xxxx; xxxx; xxxx' format.
+    """
+    seen = set()
+    result = []
+    for word in input_text.splitlines():
+        word = word.strip()
+        if word and word not in seen:
+            seen.add(word)
+            result.append(word)
+    return "; ".join(result)
+
+if __name__ == "__main__":
+    print("Paste your list of words (end with CTRL+D on Linux/Mac or CTRL+Z then Enter on Windows):\n")
+    try:
+        # Read multiline input from user
+        text = sys.stdin.read()
+    except KeyboardInterrupt:
+        text = ""
+
+    deduped = dedupe_words(text)
+    print("\n--- Deduplicated List ---")
+    print(deduped)

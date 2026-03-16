@@ -1,0 +1,66 @@
+import re
+import sys
+
+# Import third-party and GUI modules with friendly error messages when missing
+try:
+    import PyPDF2
+except ImportError:
+    print("Missing dependency: PyPDF2. Install it with: python3 -m pip install PyPDF2")
+    sys.exit(1)
+
+import argparse
+
+# Import third-party and GUI modules with friendly messages when missing
+try:
+    from tkinter import Tk, filedialog
+    _tk_available = True
+except Exception:
+    _tk_available = False
+
+def extract_zipcodes_from_pdf(file_path):
+    # Step 1: Read PDF file
+    with open(file_path, "rb") as pdf_file:
+        reader = PyPDF2.PdfReader(pdf_file)
+        text = ""
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
+
+    # Step 2: Extract ZIP codes (5-digit OR ZIP+4 format)
+    zip_pattern = r"\b\d{5}(?:-\d{4})?\b"
+    zipcodes = re.findall(zip_pattern, text)
+
+    # Step 3: Remove duplicates (optional) and format
+    zipcodes = list(dict.fromkeys(zipcodes))  # preserves order, removes duplicates
+    result = "; ".join(zipcodes)
+
+    return result
+
+
+# Use the standard Python entry-point guard to avoid NameError
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Extract ZIP codes from a PDF.")
+    parser.add_argument("pdf", nargs="?", help="Path to the PDF file. If omitted, a file picker will open (if available).")
+    args = parser.parse_args()
+
+    pdf_path = args.pdf
+
+    if not pdf_path:
+        if _tk_available:
+            Tk().withdraw()  # Hide root tkinter window
+            pdf_path = filedialog.askopenfilename(
+                title="Select PDF file",
+                filetypes=[("PDF Files", "*.pdf")]
+            )
+            if not pdf_path:
+                print("No file selected.")
+                sys.exit(0)
+        else:
+            print("No PDF path provided and tkinter is not available to select a file. Provide a path as the first argument.")
+            parser.print_usage()
+            sys.exit(2)
+
+    zip_string = extract_zipcodes_from_pdf(pdf_path)
+    print("\nZIP Codes extracted:\n")
+    print(zip_string)

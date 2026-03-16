@@ -1,0 +1,345 @@
+import pandas as pd
+import os
+import tkinter as tk
+from tkinter import filedialog, messagebox, simpledialog
+import re
+
+class LocationQueryProcessor:
+    def __init__(self):
+        self.df = None
+        self.output_columns = [
+            "First Name", "Last Name", "Email", "Phone Number", 
+            "Company Name", "Website", "LinkedIn Profile", "Location", 
+            "Status", "Category", "ESP Type", "Current Sequence Number", 
+            "title", "emailType", "informalAddress", "informalIndustry"
+        ]
+    
+    def check_required_columns(self):
+        """Check if required columns exist in the dataframe"""
+        required_columns = ['Location', 'informalIndustry']
+        missing_columns = [col for col in required_columns if col not in self.df.columns]
+        
+        if missing_columns:
+            raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
+        
+        return True
+    
+    def select_file(self):
+        """Let user select a CSV or Excel file"""
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
+        
+        file_path = filedialog.askopenfilename(
+            title="Select Database File",
+            filetypes=[
+                ("Excel files", "*.xlsx *.xls"),
+                ("CSV files", "*.csv"),
+                ("All files", "*.*")
+            ]
+        )
+        
+        if not file_path:
+            return None
+        
+        return file_path
+    
+    def load_file(self, file_path):
+        """Load the selected file into a DataFrame"""
+        try:
+            if file_path.endswith(('.xlsx', '.xls')):
+                self.df = pd.read_excel(file_path)
+            elif file_path.endswith('.csv'):
+                self.df = pd.read_csv(file_path)
+            else:
+                raise ValueError("Unsupported file format")
+            
+            # Check if required columns exist
+            self.check_required_columns()
+            
+            # Ensure Location and informalIndustry columns are string type
+            self.df['Location'] = self.df['Location'].astype(str)
+            self.df['informalIndustry'] = self.df['informalIndustry'].astype(str)
+            
+            return True
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load file: {str(e)}")
+            return False
+    
+    def get_user_query(self):
+        """Get location query from user"""
+        root = tk.Tk()
+        root.withdraw()
+        
+        query = simpledialog.askstring(
+            "Location Query",
+            "Enter locations or zipcodes separated by '; ' (e.g., '10001; 10002; MA; TX' or 'Riverview; Lakeside'):"
+        )
+        
+        if not query:
+            return None
+        
+        # Split the query and clean up the entries
+        query_items = [item.strip() for item in query.split(';') if item.strip()]
+        
+        return query_items
+    
+    def get_industry_query(self, dataframe):
+        """Get industry query from user with Industries button"""
+        # Get unique industries from the filtered dataframe
+        industries_list = dataframe['informalIndustry'].dropna().astype(str).unique().tolist()
+        
+        # Create a visible root window
+        root = tk.Tk()
+        root.title("Industry Query")
+        root.geometry("600x200")
+        
+        # Create main frame
+        main_frame = tk.Frame(root, padx=15, pady=15)
+        main_frame.pack()
+        
+        # Label
+        label = tk.Label(main_frame, text="Enter industries separated by '; '\n(e.g., 'Technology; Finance; Healthcare')\nLeave empty to skip industry filter:")
+        label.pack(pady=10)
+        
+        # Text entry
+        text_entry = tk.Entry(main_frame, width=60)
+        text_entry.pack(pady=10)
+        text_entry.focus()
+        
+        # Button frame
+        button_frame = tk.Frame(main_frame)
+        button_frame.pack(pady=10)
+        
+        result = {'query': None, 'done': False}
+        
+        def ok_action():
+            result['query'] = text_entry.get()
+            result['done'] = True
+            root.quit()
+        
+        def cancel_action():
+            result['query'] = None
+            result['done'] = True
+            root.quit()
+        
+        def show_industries_action():
+            if not industries_list:
+                messagebox.showinfo("Industries", "No industries found in the data.")
+                return
+            
+            # Deduplicate and sort industries
+            unique_industries = sorted(list(set(industries_list)))
+            
+            # Format as query string
+            query_string = "; ".join(unique_industries)
+            
+            # Copy to clipboard
+            root.clipboard_clear()
+            root.clipboard_append(query_string)
+            root.update()  # Required to finalize clipboard
+            
+            # Show success message with preview
+            preview = query_string if len(query_string) <= 100 else query_string[:100] + "..."
+            messagebox.showinfo(
+                "Industries Copied",
+                f"Found {len(unique_industries)} unique industries.\n\n"
+                f"Copied to clipboard:\n{preview}"
+            )
+        
+        # Cancel button
+        cancel_btn = tk.Button(button_frame, text="Cancel", command=cancel_action, width=10)
+        cancel_btn.pack(side=tk.LEFT, padx=5)
+        
+        # Industries button
+        industries_btn = tk.Button(button_frame, text="Industries", command=show_industries_action, width=10)
+        industries_btn.pack(side=tk.LEFT, padx=5)
+        
+        # OK button
+        ok_btn = tk.Button(button_frame, text="OK", command=ok_action, width=10)
+        ok_btn.pack(side=tk.LEFT, padx=5)
+        
+        root.resizable(False, False)
+        root.mainloop()
+        root.destroy()
+        
+        query = result['query']
+        
+        # If user cancels or leaves empty, return empty list (no filter)
+        if not query:
+            return []
+        
+        # Split the query and clean up the entries
+        query_items = [item.strip() for item in query.split(';') if item.strip()]
+        
+        return query_items
+    
+    def search_locations(self, query_items):
+        """Search for locations in the dataframe"""
+        if self.df is None:
+            raise ValueError("No data loaded")
+        
+        # Create a pattern that matches exact words (case-sensitive)
+        # Using word boundaries to prevent partial matches within words
+        pattern = r'\b(' + '|'.join([re.escape(item) for item in query_items]) + r')\b'
+        
+        # Find rows where Location column contains any of the query items
+        mask = self.df['Location'].apply(
+            lambda x: bool(re.search(pattern, str(x))) if pd.notna(x) else False
+        )
+        
+        matching_rows = self.df[mask].copy()
+        
+        return matching_rows
+    
+    def search_industries(self, query_items, dataframe):
+        """Search for industries in the dataframe"""
+        if not query_items:  # If no industry items, return all rows (no filter)
+            return dataframe
+        
+        if self.df is None:
+            raise ValueError("No data loaded")
+        
+        # Create a pattern that matches exact words (case-insensitive)
+        # Using word boundaries to prevent partial matches within words
+        pattern = r'\b(' + '|'.join([re.escape(item) for item in query_items]) + r')\b'
+        
+        # Find rows where informalIndustry column contains any of the query items
+        mask = dataframe['informalIndustry'].apply(
+            lambda x: bool(re.search(pattern, str(x), re.IGNORECASE)) if pd.notna(x) else False
+        )
+        
+        matching_rows = dataframe[mask].copy()
+        
+        return matching_rows
+    
+    def prepare_output(self, matching_df):
+        """Prepare the output dataframe with desired column order"""
+        # Create output dataframe with all required columns
+        output_df = pd.DataFrame(columns=self.output_columns)
+        
+        # Map existing columns to output columns
+        for column in self.output_columns:
+            if column in matching_df.columns:
+                output_df[column] = matching_df[column]
+            else:
+                output_df[column] = ""  # Fill missing columns with empty strings
+        
+        # Ensure the order matches exactly
+        output_df = output_df[self.output_columns]
+        
+        return output_df
+    
+    def save_results(self, output_df):
+        """Save results to a CSV file"""
+        root = tk.Tk()
+        root.withdraw()
+        
+        save_path = filedialog.asksaveasfilename(
+            title="Save Results As",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        
+        if not save_path:
+            return None
+        
+        try:
+            output_df.to_csv(save_path, index=False)
+            return save_path
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save file: {str(e)}")
+            return None
+    
+    def run(self):
+        """Main execution flow"""
+        print("=== Location & Industry Query Processor ===\n")
+        
+        # Step 1: Select file
+        print("Step 1: Select your database file")
+        file_path = self.select_file()
+        
+        if not file_path:
+            print("No file selected. Exiting.")
+            return
+        
+        print(f"Selected file: {file_path}\n")
+        
+        # Step 2: Load file
+        print("Step 2: Loading file...")
+        if not self.load_file(file_path):
+            return
+        
+        print(f"File loaded successfully. Total rows: {len(self.df)}\n")
+        
+        # Step 3: Get location query
+        print("Step 3: Enter your location query")
+        query_items = self.get_user_query()
+        
+        if not query_items:
+            print("No query entered. Exiting.")
+            return
+        
+        print(f"Location query items: {query_items}\n")
+        
+        # Step 4: Search for location matches
+        print("Step 4: Searching for location matches...")
+        try:
+            matching_df = self.search_locations(query_items)
+            print(f"Found {len(matching_df)} matching rows for locations\n")
+            
+            if len(matching_df) == 0:
+                messagebox.showinfo("No Results", "No matching locations found.")
+                return
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Location search failed: {str(e)}")
+            return
+        
+        # Step 5: Get industry query
+        print("Step 5: Enter your industry query (optional)")
+        industry_items = self.get_industry_query(matching_df)
+        
+        if industry_items:
+            print(f"Industry query items: {industry_items}\n")
+            
+            # Step 6: Apply industry filter
+            print("Step 6: Applying industry filter...")
+            try:
+                matching_df = self.search_industries(industry_items, matching_df)
+                print(f"After industry filter: {len(matching_df)} matching rows\n")
+                
+                if len(matching_df) == 0:
+                    messagebox.showinfo("No Results", "No matching industries found within the location results.")
+                    return
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Industry search failed: {str(e)}")
+                return
+        else:
+            print("No industry filter applied - using location results only\n")
+        
+        # Step 7: Prepare output
+        print("Step 7: Preparing output...")
+        output_df = self.prepare_output(matching_df)
+        
+        # Step 8: Save results
+        print("Step 8: Save results...")
+        save_path = self.save_results(output_df)
+        
+        if save_path:
+            print(f"Results saved to: {save_path}")
+            messagebox.showinfo(
+                "Success",
+                f"Found {len(matching_df)} matching rows.\n"
+                f"Results saved to:\n{save_path}"
+            )
+        
+        print("\n=== Process Complete ===")
+
+def main():
+    """Main function"""
+    processor = LocationQueryProcessor()
+    processor.run()
+
+if __name__ == "__main__":
+    main()
