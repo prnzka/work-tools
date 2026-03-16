@@ -19,6 +19,8 @@ TARGET_COLUMNS = [
     "ESP Type",
     "Current Sequence Number",
     "title",
+    "businessRating",
+    "businessReviewCount",
     "emailType",
     "informalAddress",
     "informalIndustry",
