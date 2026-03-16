@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Work Tools</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;display:flex}
+
+    /* ── Sidebar ── */
+    .sidebar{width:230px;background:#1e293b;padding:0;display:flex;flex-direction:column;flex-shrink:0;border-right:1px solid #334155}
+    .sidebar-header{padding:22px 20px 18px;border-bottom:1px solid #334155}
+    .sidebar-header h1{font-size:17px;font-weight:700;color:#f1f5f9}
+    .sidebar-header p{font-size:11px;color:#64748b;margin-top:3px}
+    .nav-section{padding:12px 20px 4px;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.08em}
+    .nav-item{padding:9px 20px;cursor:pointer;font-size:13px;color:#94a3b8;display:flex;align-items:center;gap:9px;transition:all .15s;border-left:3px solid transparent}
+    .nav-item:hover{background:rgba(255,255,255,.04);color:#e2e8f0}
+    .nav-item.active{background:rgba(56,189,248,.08);color:#38bdf8;border-left-color:#38bdf8}
+    .nav-item .icon{font-size:15px}
+    .sidebar-footer{margin-top:auto;padding:16px 20px;border-top:1px solid #334155;font-size:11px;color:#475569}
+    .sidebar-footer a{color:#38bdf8;text-decoration:none}
+
+    /* ── Main ── */
+    .main{flex:1;overflow-y:auto;padding:36px 40px}
+    .tool-view{display:none}
+    .tool-view.active{display:block}
+
+    /* ── Tool header ── */
+    .tool-header{margin-bottom:28px}
+    .tool-header h2{font-size:22px;font-weight:700;color:#f1f5f9}
+    .tool-header p{color:#64748b;margin-top:6px;font-size:13px;line-height:1.6}
+
+    /* ── Cards ── */
+    .card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:22px;margin-bottom:18px}
+    .card-title{font-size:11px;font-weight:700;color:#64748b;margin-bottom:14px;text-transform:uppercase;letter-spacing:.07em}
+
+    /* ── Drop zone ── */
+    .drop-zone{border:2px dashed #334155;border-radius:8px;padding:28px 20px;text-align:center;cursor:pointer;transition:all .2s;color:#475569}
+    .drop-zone:hover,.drop-zone.dragover{border-color:#38bdf8;color:#38bdf8;background:rgba(56,189,248,.05)}
+    .drop-icon{font-size:28px;margin-bottom:7px}
+    .drop-text{font-size:13px;font-weight:500}
+    .drop-sub{font-size:11px;margin-top:4px;color:#334155}
+
+    /* ── File list ── */
+    .file-list{display:flex;flex-direction:column;gap:7px;margin-top:12px}
+    .file-item{display:flex;align-items:center;justify-content:space-between;background:#0f172a;border-radius:6px;padding:8px 12px;font-size:12px}
+    .file-name{color:#94a3b8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:340px}
+    .file-remove{color:#ef4444;cursor:pointer;background:none;border:none;font-size:15px;padding:0 4px;line-height:1;flex-shrink:0}
+    .file-remove:hover{color:#fca5a5}
+
+    /* ── Buttons ── */
+    .btn{padding:9px 18px;border-radius:7px;border:none;cursor:pointer;font-size:13px;font-weight:600;transition:all .15s;display:inline-flex;align-items:center;gap:6px}
+    .btn-primary{background:#38bdf8;color:#0f172a}
+    .btn-primary:hover{background:#7dd3fc}
+    .btn-primary:disabled{background:#1e293b;color:#475569;border:1px solid #334155;cursor:not-allowed}
+    .btn-secondary{background:#1e293b;color:#94a3b8;border:1px solid #334155}
+    .btn-secondary:hover{background:#334155;color:#e2e8f0}
+    .btn-success{background:#22c55e;color:#0f172a}
+    .btn-success:hover{background:#4ade80}
+
+    /* ── Form elements ── */
+    .label{font-size:12px;font-weight:600;color:#94a3b8;margin-bottom:7px;display:block}
+    .form-group{margin-bottom:16px}
+    .input{width:100%;background:#0f172a;border:1px solid #334155;border-radius:7px;padding:9px 12px;color:#e2e8f0;font-size:13px}
+    .input:focus{outline:none;border-color:#38bdf8}
+    .textarea{width:100%;background:#0f172a;border:1px solid #334155;border-radius:7px;padding:12px;color:#e2e8f0;font-size:13px;font-family:monospace;resize:vertical}
+    .textarea:focus{outline:none;border-color:#38bdf8}
+    input[type="file"]{display:none}
+
+    /* ── Status / Result ── */
+    .status{padding:10px 14px;border-radius:7px;font-size:12px;margin-top:10px;line-height:1.5}
+    .status.success{background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.3);color:#4ade80}
+    .status.error{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.3);color:#fca5a5}
+    .status.info{background:rgba(56,189,248,.08);border:1px solid rgba(56,189,248,.3);color:#7dd3fc}
+    .status.warning{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);color:#fcd34d}
+    .result-box{background:#0f172a;border:1px solid #334155;border-radius:7px;padding:14px;font-family:monospace;font-size:12px;color:#4ade80;word-break:break-all;max-height:220px;overflow-y:auto;line-height:1.6}
+
+    /* ── Stats ── */
+    .stats{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px}
+    .stat{background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px 16px;min-width:100px}
+    .stat-value{font-size:22px;font-weight:700;color:#38bdf8}
+    .stat-label{font-size:11px;color:#475569;margin-top:2px}
+
+    /* ── Log ── */
+    .log{background:#0f172a;border:1px solid #334155;border-radius:7px;padding:12px;font-family:monospace;font-size:11px;color:#475569;max-height:140px;overflow-y:auto}
+    .log-line{margin-bottom:3px}
+    .log-ok{color:#4ade80}
+    .log-warn{color:#fcd34d}
+    .log-info{color:#7dd3fc}
+
+    /* ── Tag ── */
+    .tag{display:inline-block;background:#1e3a5f;color:#7dd3fc;padding:2px 8px;border-radius:4px;font-size:11px;margin:2px;cursor:pointer;border:1px solid #1e4976}
+    .tag:hover{background:#1e4976}
+    .tag-plain{display:inline-block;background:#1e293b;color:#64748b;padding:2px 8px;border-radius:4px;font-size:11px;margin:2px;border:1px solid #334155;cursor:default}
+
+    /* ── Home grid ── */
+    .tools-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+    .tool-card{background:#1e293b;border:1px solid #334155;border-radius:10px;padding:20px;cursor:pointer;transition:all .2s}
+    .tool-card:hover{border-color:#38bdf8;transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.3)}
+    .tc-icon{font-size:26px;margin-bottom:10px}
+    .tc-title{font-size:15px;font-weight:700;color:#f1f5f9;margin-bottom:5px}
+    .tc-desc{font-size:12px;color:#64748b;line-height:1.55}
+    .badge{display:inline-block;background:rgba(56,189,248,.15);color:#38bdf8;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;margin-top:10px}
+
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .divider{height:1px;background:#334155;margin:18px 0}
+  </style>
+</head>
+<body>
+
+<!-- ══════════════ SIDEBAR ══════════════ -->
+<nav class="sidebar">
+  <div class="sidebar-header">
+    <h1>⚙️ Work Tools</h1>
+    <p>Kyle's automation scripts</p>
+  </div>
+  <div class="nav-section">Tools</div>
+  <div class="nav-item active"  onclick="showView('home')">        <span class="icon">🏠</span> Home</div>
+  <div class="nav-item"         onclick="showView('compiler')">    <span class="icon">🗂️</span> CSV Compiler</div>
+  <div class="nav-item"         onclick="showView('dedupeWords')"> <span class="icon">✂️</span> Dedupe Words</div>
+  <div class="nav-item"         onclick="showView('dedupeEmails')"><span class="icon">📧</span> Dedupe Emails</div>
+  <div class="nav-item"         onclick="showView('finder')">      <span class="icon">📍</span> Location Finder</div>
+  <div class="nav-item"         onclick="showView('zipExtract')">  <span class="icon">🔢</span> ZIP Extractor</div>
+  <div class="nav-section">Resources</div>
+  <div class="nav-item"         onclick="showView('downloads')">   <span class="icon">📥</span> Download Scripts</div>
+  <div class="sidebar-footer">
+    🔒 All processing is done locally in your browser. No data is sent to any server.
+  </div>
+</nav>
+
+<!-- ══════════════ MAIN CONTENT ══════════════ -->
+<main class="main">
+
+  <!-- ─── HOME ─── -->
+  <div id="view-home" class="tool-view active">
+    <div class="tool-header">
+      <h2>Work Tools Dashboard</h2>
+      <p>All your automation scripts, accessible from any browser. Select a tool to get started — everything runs locally, no uploads to any server.</p>
+    </div>
+    <div class="tools-grid">
+      <div class="tool-card" onclick="showView('compiler')">
+        <div class="tc-icon">🗂️</div>
+        <div class="tc-title">CSV / TSV Compiler</div>
+        <div class="tc-desc">Merge multiple CSV or TSV contact files into one standardized output, with smart column mapping and email deduplication.</div>
+        <div class="badge">Handles CSV + TSV</div>
+      </div>
+      <div class="tool-card" onclick="showView('dedupeWords')">
+        <div class="tc-icon">✂️</div>
+        <div class="tc-title">Word Deduplicator</div>
+        <div class="tc-desc">Paste a list of words or phrases (one per line), remove duplicates, and get them back as a semicolon-separated list.</div>
+        <div class="badge">No file needed</div>
+      </div>
+      <div class="tool-card" onclick="showView('dedupeEmails')">
+        <div class="tc-icon">📧</div>
+        <div class="tc-title">Email Deduplicator</div>
+        <div class="tc-desc">Upload a base CSV and one or more deduper CSVs. Removes rows from the base file whose email already appears in the dedupers.</div>
+        <div class="badge">Multi-file support</div>
+      </div>
+      <div class="tool-card" onclick="showView('finder')">
+        <div class="tc-icon">📍</div>
+        <div class="tc-title">Location &amp; Industry Finder</div>
+        <div class="tc-desc">Filter a contact database by location (ZIP codes, state abbreviations, city names) and optionally by industry category.</div>
+        <div class="badge">CSV + Excel</div>
+      </div>
+      <div class="tool-card" onclick="showView('zipExtract')">
+        <div class="tc-icon">🔢</div>
+        <div class="tc-title">ZIP Code Extractor</div>
+        <div class="tc-desc">Upload a PDF and extract all ZIP codes from it. Deduplicates automatically and formats as a semicolon-separated list.</div>
+        <div class="badge">PDF support</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── CSV COMPILER ─── -->
+  <div id="view-compiler" class="tool-view">
+    <div class="tool-header">
+      <h2>🗂️ CSV / TSV Compiler</h2>
+      <p>Merge multiple CSV or TSV contact files into one. Smart column matching handles different header names automatically. Deduplicates by email.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Upload Files</div>
+      <div class="drop-zone" id="compiler-drop" onclick="document.getElementById('compiler-input').click()">
+        <div class="drop-icon">📂</div>
+        <div class="drop-text">Click or drag &amp; drop CSV / TSV files here</div>
+        <div class="drop-sub">You can select multiple files at once</div>
+      </div>
+      <input type="file" id="compiler-input" multiple accept=".csv,.tsv" onchange="compilerAddFiles(this.files)">
+      <div class="file-list" id="compiler-file-list"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Target Output Columns</div>
+      <p style="font-size:12px;color:#64748b;margin-bottom:10px;">Columns are mapped from your files to this standardized format. Missing columns are left blank.</p>
+      <div id="compiler-col-tags"></div>
+    </div>
+
+    <div id="compiler-result-section" style="display:none">
+      <div class="card">
+        <div class="card-title">Results</div>
+        <div class="stats" id="compiler-stats"></div>
+        <div class="log" id="compiler-log" style="margin-top:14px"></div>
+        <div style="margin-top:16px">
+          <button class="btn btn-success" onclick="compilerDownload()">⬇ Download merged_output.csv</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <button class="btn btn-primary" onclick="runCompiler()" id="compiler-run-btn" disabled>▶ Run Compiler</button>
+      <button class="btn btn-secondary" onclick="compilerReset()">↺ Reset</button>
+    </div>
+    <div id="compiler-status"></div>
+  </div>
+
+  <!-- ─── DEDUPE WORDS ─── -->
+  <div id="view-dedupeWords" class="tool-view">
+    <div class="tool-header">
+      <h2>✂️ Word Deduplicator</h2>
+      <p>Paste a list of words or phrases (one per line). The tool removes duplicates while preserving order, then joins the result with semicolons.</p>
+    </div>
+    <div class="card">
+      <div class="form-group">
+        <label class="label">Input — paste your list here (one item per line)</label>
+        <textarea class="textarea" id="dedupe-input" rows="13" placeholder="New York&#10;Chicago&#10;New York&#10;Los Angeles&#10;Chicago&#10;Miami&#10;..."></textarea>
+      </div>
+      <button class="btn btn-primary" onclick="runDedupeWords()">✂️ Deduplicate</button>
+    </div>
+
+    <div class="card" id="dedupe-output-card" style="display:none">
+      <div class="card-title">Result</div>
+      <div class="result-box" id="dedupe-output"></div>
+      <div class="stats" id="dedupe-stats"></div>
+      <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-secondary" onclick="copyDedupeResult()">📋 Copy to Clipboard</button>
+        <div id="dedupe-copy-status"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── DEDUPE EMAILS ─── -->
+  <div id="view-dedupeEmails" class="tool-view">
+    <div class="tool-header">
+      <h2>📧 Email Deduplicator</h2>
+      <p>Remove rows from a base CSV where the email address already appears in one or more deduper CSV files. Matching is case-insensitive.</p>
+    </div>
+
+    <div class="card">
+      <div class="form-group">
+        <label class="label">Step 1 — Upload Base CSV (the file to clean)</label>
+        <div class="drop-zone" id="demail-base-drop" onclick="document.getElementById('demail-base-input').click()">
+          <div class="drop-icon">📄</div>
+          <div class="drop-text" id="demail-base-text">Click to select base CSV file</div>
+        </div>
+        <input type="file" id="demail-base-input" accept=".csv" onchange="demailSetBase(this.files)">
+      </div>
+
+      <div class="form-group">
+        <label class="label">Step 2 — Upload Deduper CSV(s) (emails to remove)</label>
+        <div class="drop-zone" id="demail-deduper-drop" onclick="document.getElementById('demail-deduper-input').click()">
+          <div class="drop-icon">📂</div>
+          <div class="drop-text">Click or drag &amp; drop deduper CSV files</div>
+          <div class="drop-sub">You can select multiple files</div>
+        </div>
+        <input type="file" id="demail-deduper-input" multiple accept=".csv" onchange="demailAddDedupFiles(this.files)">
+        <div class="file-list" id="demail-deduper-list"></div>
+      </div>
+
+      <button class="btn btn-primary" onclick="runDedupeEmails()" id="demail-run-btn" disabled>▶ Run Email Deduplication</button>
+    </div>
+
+    <div id="demail-result-section" style="display:none">
+      <div class="card">
+        <div class="card-title">Results</div>
+        <div class="stats" id="demail-stats"></div>
+        <div style="margin-top:16px">
+          <button class="btn btn-success" onclick="demailDownload()">⬇ Download deduped_output.csv</button>
+        </div>
+      </div>
+    </div>
+    <div id="demail-status"></div>
+  </div>
+
+  <!-- ─── FINDER ─── -->
+  <div id="view-finder" class="tool-view">
+    <div class="tool-header">
+      <h2>📍 Location &amp; Industry Finder</h2>
+      <p>Filter your contact database by location (ZIP codes, state abbreviations, or city names) and optionally narrow down by industry.</p>
+    </div>
+
+    <div class="card">
+      <div class="form-group">
+        <label class="label">Upload Contact Database (CSV or Excel .xlsx)</label>
+        <div class="drop-zone" id="finder-drop" onclick="document.getElementById('finder-input').click()">
+          <div class="drop-icon">📊</div>
+          <div class="drop-text" id="finder-file-text">Click or drag &amp; drop CSV or Excel file</div>
+        </div>
+        <input type="file" id="finder-input" accept=".csv,.xlsx,.xls" onchange="finderLoadFile(this.files)">
+        <div id="finder-load-status"></div>
+      </div>
+    </div>
+
+    <div class="card" id="finder-query-card" style="display:none">
+      <div class="form-group">
+        <label class="label">Location Query <span style="color:#475569;font-weight:400">(required)</span></label>
+        <input type="text" class="input" id="finder-location-input"
+          placeholder="e.g.: 10001; 10002; MA; TX; Tampa; Riverview" />
+        <p style="font-size:11px;color:#475569;margin-top:5px">Separate items with semicolons. Matches ZIP codes, 2-letter state codes, or city names.</p>
+      </div>
+
+      <div class="form-group">
+        <label class="label">Industry Filter <span style="color:#475569;font-weight:400">(optional)</span></label>
+        <div class="row" style="margin-bottom:8px">
+          <input type="text" class="input" id="finder-industry-input"
+            placeholder="e.g.: Technology; Finance; Healthcare" style="flex:1" />
+          <button class="btn btn-secondary" onclick="finderShowIndustries()">Browse</button>
+        </div>
+        <div id="finder-industry-browser" style="display:none"></div>
+      </div>
+
+      <button class="btn btn-primary" onclick="runFinder()">🔍 Search</button>
+    </div>
+
+    <div id="finder-result-section" style="display:none">
+      <div class="card">
+        <div class="card-title">Results</div>
+        <div class="stats" id="finder-stats"></div>
+        <div style="margin-top:16px">
+          <button class="btn btn-success" onclick="finderDownload()">⬇ Download finder_results.csv</button>
+        </div>
+      </div>
+    </div>
+    <div id="finder-status"></div>
+  </div>
+
+  <!-- ─── ZIP EXTRACTOR ─── -->
+  <div id="view-zipExtract" class="tool-view">
+    <div class="tool-header">
+      <h2>🔢 ZIP Code Extractor</h2>
+      <p>Upload a PDF and extract every ZIP code from it. Duplicates are removed automatically. The result is formatted as a semicolon-separated list ready to paste into your FINDER query.</p>
+    </div>
+
+    <div class="card">
+      <div class="drop-zone" id="zip-drop" onclick="document.getElementById('zip-input').click()">
+        <div class="drop-icon">📋</div>
+        <div class="drop-text" id="zip-file-text">Click or drag &amp; drop a PDF file here</div>
+        <div class="drop-sub">Accepts .pdf files</div>
+      </div>
+      <input type="file" id="zip-input" accept=".pdf" onchange="zipLoadFile(this.files)">
+      <div id="zip-status" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card" id="zip-result-card" style="display:none">
+      <div class="card-title">Extracted ZIP Codes</div>
+      <div class="result-box" id="zip-output"></div>
+      <div class="stats" id="zip-stats"></div>
+      <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-secondary" onclick="copyZipResult()">📋 Copy to Clipboard</button>
+        <button class="btn btn-secondary" onclick="zipToFinder()">📍 Send to Location Finder</button>
+        <div id="zip-copy-status"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── DOWNLOADS ─── -->
+  <div id="view-downloads" class="tool-view">
+    <div class="tool-header">
+      <h2>📥 Download Python Scripts</h2>
+      <p>These are the original Python scripts for running locally on your PC. Requires Python 3 and the listed dependencies.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Scripts</div>
+      <div style="display:flex;flex-direction:column;gap:14px">
+
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:14px;font-weight:600;color:#f1f5f9">COMPILER</div>
+            <div style="font-size:12px;color:#64748b;margin-top:3px">Merge multiple CSV files with column mapping and email deduplication.</div>
+            <div style="margin-top:5px"><span class="tag-plain">pandas</span><span class="tag-plain">tkinter</span></div>
+          </div>
+          <a href="scripts/COMPILER" download class="btn btn-secondary" style="text-decoration:none;white-space:nowrap">⬇ Download</a>
+        </div>
+        <div class="divider"></div>
+
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:14px;font-weight:600;color:#f1f5f9">compilertsv.py</div>
+            <div style="font-size:12px;color:#64748b;margin-top:3px">Enhanced compiler — handles CSV and TSV files with smarter delimiter and header detection.</div>
+            <div style="margin-top:5px"><span class="tag-plain">pandas</span><span class="tag-plain">tkinter</span></div>
+          </div>
+          <a href="scripts/compilertsv.py" download class="btn btn-secondary" style="text-decoration:none;white-space:nowrap">⬇ Download</a>
+        </div>
+        <div class="divider"></div>
+
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:14px;font-weight:600;color:#f1f5f9">DEDUPE</div>
+            <div style="font-size:12px;color:#64748b;margin-top:3px">Deduplicate a list of words/phrases from stdin, outputs semicolon-separated result.</div>
+            <div style="margin-top:5px"><span class="tag-plain">stdlib only</span></div>
+          </div>
+          <a href="scripts/DEDUPE" download class="btn btn-secondary" style="text-decoration:none;white-space:nowrap">⬇ Download</a>
+        </div>
+        <div class="divider"></div>
+
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:14px;font-weight:600;color:#f1f5f9">dedupe_emails.py</div>
+            <div style="font-size:12px;color:#64748b;margin-top:3px">Remove emails from a base CSV that appear in one or more deduper CSV files.</div>
+            <div style="margin-top:5px"><span class="tag-plain">pandas</span><span class="tag-plain">tkinter</span></div>
+          </div>
+          <a href="scripts/dedupe_emails.py" download class="btn btn-secondary" style="text-decoration:none;white-space:nowrap">⬇ Download</a>
+        </div>
+        <div class="divider"></div>
+
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:14px;font-weight:600;color:#f1f5f9">FINDER</div>
+            <div style="font-size:12px;color:#64748b;margin-top:3px">Filter a contact database by location and industry using a GUI dialog.</div>
+            <div style="margin-top:5px"><span class="tag-plain">pandas</span><span class="tag-plain">tkinter</span></div>
+          </div>
+          <a href="scripts/FINDER" download class="btn btn-secondary" style="text-decoration:none;white-space:nowrap">⬇ Download</a>
+        </div>
+        <div class="divider"></div>
+
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div>
+            <div style="font-size:14px;font-weight:600;color:#f1f5f9">QUERY</div>
+            <div style="font-size:12px;color:#64748b;margin-top:3px">Extract ZIP codes from a PDF file, deduplicated and semicolon-separated.</div>
+            <div style="margin-top:5px"><span class="tag-plain">PyPDF2</span><span class="tag-plain">tkinter</span></div>
+          </div>
+          <a href="scripts/QUERY" download class="btn btn-secondary" style="text-decoration:none;white-space:nowrap">⬇ Download</a>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ══════════════ PDF.js ══════════════ -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+
+<script>
+// ──────────────────────────────────────────────────────────────────────────────
+// CONFIG
+// ──────────────────────────────────────────────────────────────────────────────
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const TARGET_COLUMNS = [
+  'First Name','Last Name','Email','Phone Number','Company Name',
+  'Website','LinkedIn Profile','Location','Status','Category',
+  'ESP Type','Current Sequence Number','title','emailType',
+  'informalAddress','informalIndustry'
+];
+
+const ALIASES = {
+  'Phone Number': ['businessPhone'],
+  'Website':      ['businessUrl','businessURL'],
+  'Location':     ['businessAddress'],
+  'Company Name': ['businessName'],
+};
+
+// Render column tags in compiler card
+document.getElementById('compiler-col-tags').innerHTML =
+  TARGET_COLUMNS.map(c => `<span class="tag-plain">${c}</span>`).join('');
+
+// ──────────────────────────────────────────────────────────────────────────────
+// NAVIGATION
+// ──────────────────────────────────────────────────────────────────────────────
+const VIEW_ORDER = ['home','compiler','dedupeWords','dedupeEmails','finder','zipExtract','downloads'];
+
+function showView(id) {
+  document.querySelectorAll('.tool-view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const view = document.getElementById('view-' + id);
+  if (view) view.classList.add('active');
+  const idx = VIEW_ORDER.indexOf(id);
+  if (idx >= 0) document.querySelectorAll('.nav-item')[idx].classList.add('active');
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// UTILITIES
+// ──────────────────────────────────────────────────────────────────────────────
+function normalize(s) {
+  return String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function findColumn(cols, target) {
+  if (cols.includes(target)) return target;
+  const lo = cols.find(c => c.toLowerCase() === target.toLowerCase());
+  if (lo) return lo;
+  for (const alias of (ALIASES[target] || [])) {
+    const a = cols.find(c => c.toLowerCase() === alias.toLowerCase());
+    if (a) return a;
+  }
+  const tn = normalize(target);
+  const ne = cols.find(c => normalize(c) === tn);
+  if (ne) return ne;
+  return cols.find(c => { const n = normalize(c); return tn.includes(n) || n.includes(tn); }) || null;
+}
+
+function downloadCsv(data, filename) {
+  const csv = Papa.unparse(data);
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function setStatus(elId, msg, type = 'info') {
+  document.getElementById(elId).innerHTML = `<div class="status ${type}">${msg}</div>`;
+}
+
+function makeStat(value, label) {
+  return `<div class="stat"><div class="stat-value">${value}</div><div class="stat-label">${label}</div></div>`;
+}
+
+function setupDrop(dropId, handler) {
+  const el = document.getElementById(dropId);
+  if (!el) return;
+  el.addEventListener('dragover',  e => { e.preventDefault(); el.classList.add('dragover'); });
+  el.addEventListener('dragleave', () => el.classList.remove('dragover'));
+  el.addEventListener('drop',      e => { e.preventDefault(); el.classList.remove('dragover'); handler(e.dataTransfer.files); });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CSV COMPILER
+// ──────────────────────────────────────────────────────────────────────────────
+let compilerFiles  = [];
+let compilerResult = null;
+setupDrop('compiler-drop', compilerAddFiles);
+
+function compilerAddFiles(files) {
+  for (const f of files) if (!compilerFiles.find(x => x.name === f.name)) compilerFiles.push(f);
+  renderCompilerFiles();
+}
+function compilerRemoveFile(i) { compilerFiles.splice(i, 1); renderCompilerFiles(); }
+function compilerReset() {
+  compilerFiles = []; compilerResult = null;
+  renderCompilerFiles();
+  document.getElementById('compiler-result-section').style.display = 'none';
+  document.getElementById('compiler-status').innerHTML = '';
+}
+function renderCompilerFiles() {
+  document.getElementById('compiler-file-list').innerHTML = compilerFiles.map((f, i) =>
+    `<div class="file-item"><span class="file-name">📄 ${f.name}</span>
+     <button class="file-remove" onclick="compilerRemoveFile(${i})">✕</button></div>`
+  ).join('');
+  document.getElementById('compiler-run-btn').disabled = compilerFiles.length === 0;
+}
+
+async function runCompiler() {
+  if (!compilerFiles.length) return;
+  const btn = document.getElementById('compiler-run-btn');
+  btn.disabled = true; btn.textContent = '⏳ Processing…';
+
+  const logEl = document.getElementById('compiler-log');
+  logEl.innerHTML = '';
+  function log(msg, cls = '') {
+    logEl.innerHTML += `<div class="log-line ${cls}">${msg}</div>`;
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  let allRows = [];
+  for (const file of compilerFiles) {
+    try {
+      let text = await file.text();
+      // detect separator
+      const ext = file.name.split('.').pop().toLowerCase();
+      const sep = ext === 'tsv' ? '\t' : (text.indexOf('\t') > text.indexOf(',') ? ',' : (text.split('\t').length > 3 ? '\t' : ','));
+      const result = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false, delimiter: sep });
+      const cols = result.meta.fields || [];
+      let mappedCount = 0;
+      for (const row of result.data) {
+        const out = {};
+        for (const target of TARGET_COLUMNS) {
+          const src = findColumn(cols, target);
+          out[target] = src ? (String(row[src] || '')).trim() : '';
+          if (src) mappedCount = mappedCount; // counted below
+        }
+        allRows.push(out);
+      }
+      const mapped = TARGET_COLUMNS.filter(t => findColumn(cols, t)).length;
+      log(`✓ ${file.name} — ${result.data.length} rows, ${mapped}/${TARGET_COLUMNS.length} cols mapped`, 'log-ok');
+    } catch (e) {
+      log(`✗ ${file.name} — ${e.message}`, 'log-warn');
+    }
+  }
+
+  // Deduplicate by email
+  const seen = new Set();
+  const deduped = [];
+  let dups = 0;
+  for (const row of allRows) {
+    const email = (row['Email'] || '').trim().toLowerCase();
+    if (email && seen.has(email)) { dups++; continue; }
+    if (email) seen.add(email);
+    deduped.push(row);
+  }
+  log(`Total: ${allRows.length} rows merged, ${dups} duplicates removed → ${deduped.length} final rows`, 'log-info');
+
+  compilerResult = deduped;
+  document.getElementById('compiler-stats').innerHTML =
+    makeStat(compilerFiles.length, 'Files merged') +
+    makeStat(allRows.length, 'Total rows') +
+    makeStat(dups, 'Duplicates removed') +
+    makeStat(deduped.length, 'Final rows');
+  document.getElementById('compiler-result-section').style.display = 'block';
+  setStatus('compiler-status', `✅ Done! ${deduped.length} rows ready to download.`, 'success');
+  btn.disabled = false; btn.textContent = '▶ Run Compiler';
+}
+
+function compilerDownload() {
+  if (compilerResult) downloadCsv(compilerResult, 'merged_output.csv');
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// DEDUPE WORDS
+// ──────────────────────────────────────────────────────────────────────────────
+let dedupeResult = '';
+
+function runDedupeWords() {
+  const lines = document.getElementById('dedupe-input').value
+    .split('\n').map(l => l.trim()).filter(Boolean);
+  const seen = new Set(), unique = [];
+  for (const line of lines) if (!seen.has(line)) { seen.add(line); unique.push(line); }
+  dedupeResult = unique.join('; ');
+  document.getElementById('dedupe-output').textContent = dedupeResult || '(no input)';
+  document.getElementById('dedupe-stats').innerHTML =
+    makeStat(lines.length, 'Total items') +
+    makeStat(lines.length - unique.length, 'Removed') +
+    makeStat(unique.length, 'Unique items');
+  document.getElementById('dedupe-output-card').style.display = 'block';
+}
+
+function copyDedupeResult() {
+  navigator.clipboard.writeText(dedupeResult).then(() => {
+    document.getElementById('dedupe-copy-status').innerHTML =
+      '<span class="status success" style="display:inline-block;padding:4px 10px">✅ Copied!</span>';
+    setTimeout(() => document.getElementById('dedupe-copy-status').innerHTML = '', 2500);
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// DEDUPE EMAILS
+// ──────────────────────────────────────────────────────────────────────────────
+let demailBase        = null;
+let demailDedupFiles  = [];
+let demailResult      = null;
+setupDrop('demail-base-drop',    f => demailSetBase(f));
+setupDrop('demail-deduper-drop', f => demailAddDedupFiles(f));
+
+function demailSetBase(files) {
+  if (!files[0]) return;
+  demailBase = files[0];
+  document.getElementById('demail-base-text').textContent = '✅ ' + files[0].name;
+  checkDemailReady();
+}
+function demailAddDedupFiles(files) {
+  for (const f of files) if (!demailDedupFiles.find(x => x.name === f.name)) demailDedupFiles.push(f);
+  renderDemailList();
+}
+function demailRemoveDup(i) { demailDedupFiles.splice(i, 1); renderDemailList(); }
+function renderDemailList() {
+  document.getElementById('demail-deduper-list').innerHTML = demailDedupFiles.map((f, i) =>
+    `<div class="file-item"><span class="file-name">📄 ${f.name}</span>
+     <button class="file-remove" onclick="demailRemoveDup(${i})">✕</button></div>`
+  ).join('');
+  checkDemailReady();
+}
+function checkDemailReady() {
+  document.getElementById('demail-run-btn').disabled = !(demailBase && demailDedupFiles.length > 0);
+}
+function findEmailCol(cols) {
+  return cols.find(c => c.trim().toLowerCase() === 'email') ||
+         cols.find(c => c.trim().toLowerCase().includes('email')) || null;
+}
+
+async function runDedupeEmails() {
+  const btn = document.getElementById('demail-run-btn');
+  btn.disabled = true; btn.textContent = '⏳ Processing…';
+
+  const baseText   = await demailBase.text();
+  const baseResult = Papa.parse(baseText, { header: true, skipEmptyLines: true, dynamicTyping: false });
+  const baseEmailCol = findEmailCol(baseResult.meta.fields || []);
+  if (!baseEmailCol) {
+    setStatus('demail-status', '❌ No email column found in base CSV.', 'error');
+    btn.disabled = false; btn.textContent = '▶ Run Email Deduplication'; return;
+  }
+
+  const dupeSet = new Set();
+  for (const f of demailDedupFiles) {
+    const r = Papa.parse(await f.text(), { header: true, skipEmptyLines: true, dynamicTyping: false });
+    const col = findEmailCol(r.meta.fields || []);
+    if (!col) continue;
+    for (const row of r.data) {
+      const e = (row[col] || '').trim().toLowerCase();
+      if (e) dupeSet.add(e);
+    }
+  }
+
+  const initial  = baseResult.data.length;
+  const filtered = baseResult.data.filter(row => {
+    const e = (row[baseEmailCol] || '').trim().toLowerCase();
+    return !e || !dupeSet.has(e);
+  });
+  const removed  = initial - filtered.length;
+
+  demailResult = { data: filtered, fields: baseResult.meta.fields };
+  document.getElementById('demail-stats').innerHTML =
+    makeStat(initial, 'Original rows') +
+    makeStat(removed, 'Emails removed') +
+    makeStat(filtered.length, 'Remaining rows');
+  document.getElementById('demail-result-section').style.display = 'block';
+  setStatus('demail-status', `✅ Done! ${removed} emails removed. ${filtered.length} rows remaining.`, 'success');
+  btn.disabled = false; btn.textContent = '▶ Run Email Deduplication';
+}
+
+function demailDownload() {
+  if (demailResult) downloadCsv(demailResult.data, 'deduped_output.csv');
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// LOCATION & INDUSTRY FINDER
+// ──────────────────────────────────────────────────────────────────────────────
+let finderDf       = null;
+let finderResult   = null;
+let finderIndustries = [];
+setupDrop('finder-drop', files => finderLoadFile(files));
+
+async function finderLoadFile(files) {
+  const file = files[0]; if (!file) return;
+  document.getElementById('finder-file-text').textContent = '⏳ Loading ' + file.name + '…';
+
+  try {
+    let rows;
+    if (file.name.match(/\.xlsx?$/i)) {
+      const buf = await file.arrayBuffer();
+      const wb  = XLSX.read(buf, { type: 'array' });
+      const ws  = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(ws, { raw: false, defval: '' });
+    } else {
+      const text = await file.text();
+      rows = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false }).data;
+    }
+    finderDf = rows;
+    finderIndustries = [...new Set(rows.map(r => (r['informalIndustry'] || '').trim()).filter(Boolean))].sort();
+    document.getElementById('finder-file-text').textContent = '✅ ' + file.name;
+    document.getElementById('finder-load-status').innerHTML =
+      `<div class="status info" style="margin-top:8px">Loaded ${rows.length.toLocaleString()} rows &nbsp;·&nbsp; ${Object.keys(rows[0] || {}).length} columns</div>`;
+    document.getElementById('finder-query-card').style.display = 'block';
+  } catch (e) {
+    document.getElementById('finder-file-text').textContent = 'Click or drag & drop CSV or Excel file';
+    setStatus('finder-status', '❌ Failed to load file: ' + e.message, 'error');
+  }
+}
+
+function finderShowIndustries() {
+  const el = document.getElementById('finder-industry-browser');
+  if (!finderIndustries.length) {
+    el.style.display = 'block';
+    el.innerHTML = '<p style="font-size:12px;color:#64748b;padding:8px 0">No industries found in the loaded data.</p>';
+    return;
+  }
+  el.style.display = 'block';
+  el.innerHTML =
+    `<div style="background:#0f172a;border:1px solid #334155;border-radius:7px;padding:12px;max-height:180px;overflow-y:auto;margin-top:8px">
+       <p style="font-size:11px;color:#475569;margin-bottom:8px">Click an industry to add it to the filter field:</p>
+       ${finderIndustries.map(ind =>
+         `<span class="tag" onclick="finderAddIndustry(${JSON.stringify(ind)})">${ind}</span>`
+       ).join('')}
+     </div>`;
+}
+
+function finderAddIndustry(ind) {
+  const el  = document.getElementById('finder-industry-input');
+  const cur = el.value.trim();
+  if (!cur) el.value = ind;
+  else if (!cur.split(';').map(s => s.trim()).includes(ind)) el.value = cur + '; ' + ind;
+}
+
+function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+function runFinder() {
+  if (!finderDf) return;
+  const locQuery = document.getElementById('finder-location-input').value.trim();
+  if (!locQuery) { setStatus('finder-status', '⚠ Please enter at least one location.', 'warning'); return; }
+
+  const locItems = locQuery.split(';').map(s => s.trim()).filter(Boolean);
+  const locPat   = new RegExp('\\b(' + locItems.map(escapeRegex).join('|') + ')\\b');
+
+  let filtered = finderDf.filter(row => locPat.test(String(row['Location'] || '')));
+
+  const indQuery = document.getElementById('finder-industry-input').value.trim();
+  if (indQuery) {
+    const indItems = indQuery.split(';').map(s => s.trim()).filter(Boolean);
+    if (indItems.length) {
+      const indPat = new RegExp('\\b(' + indItems.map(escapeRegex).join('|') + ')\\b', 'i');
+      filtered = filtered.filter(row => indPat.test(String(row['informalIndustry'] || '')));
+    }
+  }
+
+  const OUTPUT_COLS = [
+    'First Name','Last Name','Email','Phone Number','Company Name',
+    'Website','LinkedIn Profile','Location','Status','Category',
+    'ESP Type','Current Sequence Number','title','emailType',
+    'informalAddress','informalIndustry'
+  ];
+  finderResult = filtered.map(row => {
+    const out = {};
+    for (const col of OUTPUT_COLS) out[col] = row[col] != null ? row[col] : '';
+    return out;
+  });
+
+  document.getElementById('finder-stats').innerHTML =
+    makeStat(finderDf.length.toLocaleString(), 'Total rows') +
+    makeStat(filtered.length.toLocaleString(), 'Matches found');
+  document.getElementById('finder-result-section').style.display = 'block';
+
+  if (!filtered.length) {
+    setStatus('finder-status', '⚠ No matching rows found. Try broadening your query.', 'warning');
+  } else {
+    setStatus('finder-status', `✅ Found ${filtered.length.toLocaleString()} matching rows.`, 'success');
+  }
+}
+
+function finderDownload() {
+  if (finderResult) downloadCsv(finderResult, 'finder_results.csv');
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// ZIP CODE EXTRACTOR
+// ──────────────────────────────────────────────────────────────────────────────
+let zipResult = '';
+setupDrop('zip-drop', files => zipLoadFile(files));
+
+async function zipLoadFile(files) {
+  const file = files[0]; if (!file) return;
+  document.getElementById('zip-file-text').textContent = '⏳ Loading ' + file.name + '…';
+  setStatus('zip-status', '⏳ Extracting text from PDF…', 'info');
+
+  try {
+    const buf      = await file.arrayBuffer();
+    const loadTask = pdfjsLib.getDocument({ data: new Uint8Array(buf) });
+    const pdf      = await loadTask.promise;
+
+    let fullText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page    = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      fullText     += content.items.map(item => item.str).join(' ') + '\n';
+    }
+
+    const zipRegex = /\b\d{5}(?:-\d{4})?\b/g;
+    const matches  = fullText.match(zipRegex) || [];
+    const unique   = [...new Map(matches.map(z => [z, z])).values()];
+    zipResult      = unique.join('; ');
+
+    document.getElementById('zip-output').textContent = zipResult || 'No ZIP codes found in this PDF.';
+    document.getElementById('zip-stats').innerHTML =
+      makeStat(matches.length,   'ZIP codes found') +
+      makeStat(unique.length,    'Unique ZIPs') +
+      makeStat(pdf.numPages,     'Pages scanned');
+    document.getElementById('zip-result-card').style.display = 'block';
+    document.getElementById('zip-file-text').textContent = '✅ ' + file.name;
+    setStatus('zip-status', `✅ Done! Found ${unique.length} unique ZIP codes across ${pdf.numPages} pages.`, 'success');
+  } catch (e) {
+    document.getElementById('zip-file-text').textContent = 'Click or drag & drop a PDF file here';
+    setStatus('zip-status', '❌ Failed to process PDF: ' + e.message, 'error');
+  }
+}
+
+function copyZipResult() {
+  navigator.clipboard.writeText(zipResult).then(() => {
+    document.getElementById('zip-copy-status').innerHTML =
+      '<span class="status success" style="display:inline-block;padding:4px 10px">✅ Copied!</span>';
+    setTimeout(() => document.getElementById('zip-copy-status').innerHTML = '', 2500);
+  });
+}
+
+function zipToFinder() {
+  if (!zipResult) return;
+  document.getElementById('finder-location-input').value = zipResult;
+  showView('finder');
+}
+</script>
+</body>
+</html>
