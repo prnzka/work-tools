@@ -293,10 +293,10 @@
 
     <div class="card">
       <div class="form-group">
-        <label class="label">Upload Contact Database (CSV or Excel .xlsx)</label>
-        <div class="drop-zone" id="finder-drop" onclick="document.getElementById('finder-input').click()">
-          <div class="drop-icon">📊</div>
-          <div class="drop-text" id="finder-file-text">Click or drag &amp; drop CSV or Excel file</div>
+        <label class="label">Database Source</label>
+        <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap">
+          <button class="btn btn-primary" id="finder-default-btn" onclick="finderLoadDefault()">⚡ Use Default Database <span style="font-size:11px;opacity:.7">(merged_output.csv)</span></button>
+          <button class="btn btn-secondary" onclick="document.getElementById('finder-input').click()">📂 Upload a Different File</button>
         </div>
         <input type="file" id="finder-input" accept=".csv,.xlsx,.xls" onchange="finderLoadFile(this.files)">
         <div id="finder-load-status"></div>
@@ -733,6 +733,26 @@ let finderDf       = null;
 let finderResult   = null;
 let finderIndustries = [];
 setupDrop('finder-drop', files => finderLoadFile(files));
+
+async function finderLoadDefault() {
+  const btn = document.getElementById('finder-default-btn');
+  btn.disabled = true; btn.textContent = '⏳ Loading…';
+  setStatus('finder-load-status', '⏳ Loading merged_output.csv…', 'info');
+  try {
+    const resp = await fetch('merged_output.csv');
+    if (!resp.ok) throw new Error('File not found (HTTP ' + resp.status + '). Make sure merged_output.csv is uploaded to your repo root.');
+    const text = await resp.text();
+    const rows = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false }).data;
+    finderDf = rows;
+    finderIndustries = [...new Set(rows.map(r => (r['informalIndustry'] || '').trim()).filter(Boolean))].sort();
+    document.getElementById('finder-load-status').innerHTML =
+      `<div class="status success" style="margin-top:8px">✅ Default database loaded — ${rows.length.toLocaleString()} rows · ${Object.keys(rows[0] || {}).length} columns</div>`;
+    document.getElementById('finder-query-card').style.display = 'block';
+  } catch(e) {
+    setStatus('finder-load-status', '❌ ' + e.message, 'error');
+  }
+  btn.disabled = false; btn.innerHTML = '⚡ Use Default Database <span style="font-size:11px;opacity:.7">(merged_output.csv)</span>';
+}
 
 async function finderLoadFile(files) {
   const file = files[0]; if (!file) return;
