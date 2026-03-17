@@ -321,7 +321,7 @@
         <div id="finder-industry-browser" style="display:none"></div>
       </div>
 
-      <button class="btn btn-primary" onclick="runFinder()">🔍 Search</button>
+      <button class="btn btn-primary" onclick="runFinder()" id="finder-run-btn">🔍 Search</button>
     </div>
 
     <div id="finder-result-section" style="display:none">
@@ -529,6 +529,10 @@ function setupDrop(dropId, handler) {
   el.addEventListener('drop',      e => { e.preventDefault(); el.classList.remove('dragover'); handler(e.dataTransfer.files); });
 }
 
+function fileSignature(f) {
+  return [f.name, f.size, f.lastModified].join('::');
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // CSV COMPILER
 // ──────────────────────────────────────────────────────────────────────────────
@@ -537,7 +541,7 @@ let compilerResult = null;
 setupDrop('compiler-drop', compilerAddFiles);
 
 function compilerAddFiles(files) {
-  for (const f of files) if (!compilerFiles.find(x => x.name === f.name)) compilerFiles.push(f);
+  for (const f of files) if (!compilerFiles.find(x => fileSignature(x) === fileSignature(f))) compilerFiles.push(f);
   renderCompilerFiles();
 }
 function compilerRemoveFile(i) { compilerFiles.splice(i, 1); renderCompilerFiles(); }
@@ -573,20 +577,22 @@ async function runCompiler() {
       let text = await file.text();
       // detect separator
       const ext = file.name.split('.').pop().toLowerCase();
-      const sep = ext === 'tsv' ? '\t' : (text.indexOf('\t') > text.indexOf(',') ? ',' : (text.split('\t').length > 3 ? '\t' : ','));
+      const firstLine = (text.split(/\r?\n/, 1)[0] || '');
+      const commaCount = (firstLine.match(/,/g) || []).length;
+      const tabCount = (firstLine.match(/\t/g) || []).length;
+      const sep = ext === 'tsv' ? '\t' : (ext === 'csv' ? ',' : (tabCount > commaCount ? '\t' : ','));
       const result = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false, delimiter: sep });
       const cols = result.meta.fields || [];
-      let mappedCount = 0;
+      const colMap = Object.fromEntries(TARGET_COLUMNS.map(target => [target, findColumn(cols, target)]));
       for (const row of result.data) {
         const out = {};
         for (const target of TARGET_COLUMNS) {
-          const src = findColumn(cols, target);
+          const src = colMap[target];
           out[target] = src ? (String(row[src] || '')).trim() : '';
-          if (src) mappedCount = mappedCount; // counted below
         }
         allRows.push(out);
       }
-      const mapped = TARGET_COLUMNS.filter(t => findColumn(cols, t)).length;
+      const mapped = TARGET_COLUMNS.filter(t => colMap[t]).length;
       log(`✓ ${file.name} — ${result.data.length} rows, ${mapped}/${TARGET_COLUMNS.length} cols mapped`, 'log-ok');
     } catch (e) {
       log(`✗ ${file.name} — ${e.message}`, 'log-warn');
@@ -644,6 +650,9 @@ function copyDedupeResult() {
     document.getElementById('dedupe-copy-status').innerHTML =
       '<span class="status success" style="display:inline-block;padding:4px 10px">✅ Copied!</span>';
     setTimeout(() => document.getElementById('dedupe-copy-status').innerHTML = '', 2500);
+  }).catch(err => {
+    document.getElementById('dedupe-copy-status').innerHTML =
+      `<span class="status error" style="display:inline-block;padding:4px 10px">❌ Copy failed: ${err.message}</span>`;
   });
 }
 
@@ -663,7 +672,7 @@ function demailSetBase(files) {
   checkDemailReady();
 }
 function demailAddDedupFiles(files) {
-  for (const f of files) if (!demailDedupFiles.find(x => x.name === f.name)) demailDedupFiles.push(f);
+  for (const f of files) if (!demailDedupFiles.find(x => fileSignature(x) === fileSignature(f))) demailDedupFiles.push(f);
   renderDemailList();
 }
 function demailRemoveDup(i) { demailDedupFiles.splice(i, 1); renderDemailList(); }
@@ -729,33 +738,118 @@ function demailDownload() {
 // ──────────────────────────────────────────────────────────────────────────────
 // LOCATION & INDUSTRY FINDER
 // ──────────────────────────────────────────────────────────────────────────────
-let finderDf       = null;
-let finderResult   = null;
+const FINDER_OUTPUT_COLS = [
+  'First Name','Last Name','Email','Phone Number','Company Name',
+  'Website','LinkedIn Profile','Location','Status','Category',
+  'ESP Type','Current Sequence Number','title','emailType',
+  'informalAddress','informalIndustry'
+];
+const FINDER_STREAMING_THRESHOLD = 50 * 1024 * 1024;
+let finderDf = null;
+let finderFile = null;
+let finderIsStreaming = false;
+let finderResult = null;
 let finderIndustries = [];
 setupDrop('finder-drop', files => finderLoadFile(files));
 
+function parseCsvPreview(file, previewRows = 5000) {
+  return new Promise((resolve, reject) => {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      dynamicTyping: false,
+      preview: previewRows,
+      worker: true,
+      complete: resolve,
+      error: reject,
+    });
+  });
+}
+
+function parseCsvFile(file) {
+  return new Promise((resolve, reject) => {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      dynamicTyping: false,
+      worker: true,
+      complete: resolve,
+      error: reject,
+    });
+  });
+}
+
+function streamFilterCsv(file, locPat, indPat) {
+  return new Promise((resolve, reject) => {
+    let totalRows = 0;
+    const matched = [];
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      dynamicTyping: false,
+      worker: true,
+      step: results => {
+        const row = results.data || {};
+        totalRows++;
+        if (!locPat.test(String(row['Location'] || ''))) return;
+        if (indPat && !indPat.test(String(row['informalIndustry'] || ''))) return;
+
+        const out = {};
+        for (const col of FINDER_OUTPUT_COLS) out[col] = row[col] != null ? row[col] : '';
+        matched.push(out);
+      },
+      complete: () => resolve({ totalRows, matched }),
+      error: reject,
+    });
+  });
+}
 
 async function finderLoadFile(files) {
   const file = files[0]; if (!file) return;
+  finderFile = file;
+  finderDf = null;
+  finderResult = null;
+  finderIndustries = [];
+  finderIsStreaming = false;
+  document.getElementById('finder-result-section').style.display = 'none';
   document.getElementById('finder-file-text').textContent = '⏳ Loading ' + file.name + '…';
 
   try {
-    let rows;
     if (file.name.match(/\.xlsx?$/i)) {
+      if (file.size > FINDER_STREAMING_THRESHOLD) {
+        throw new Error('Large Excel files are not supported in-browser. Convert to CSV for large datasets.');
+      }
       const buf = await file.arrayBuffer();
-      const wb  = XLSX.read(buf, { type: 'array' });
-      const ws  = wb.Sheets[wb.SheetNames[0]];
-      rows = XLSX.utils.sheet_to_json(ws, { raw: false, defval: '' });
+      const wb = XLSX.read(buf, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { raw: false, defval: '' });
+      finderDf = rows;
+      finderIndustries = [...new Set(rows.map(r => (r['informalIndustry'] || '').trim()).filter(Boolean))].sort();
+      document.getElementById('finder-load-status').innerHTML =
+        `<div class="status info" style="margin-top:8px">Loaded ${rows.length.toLocaleString()} rows &nbsp;·&nbsp; ${Object.keys(rows[0] || {}).length} columns</div>`;
     } else {
-      const text = await file.text();
-      rows = Papa.parse(text, { header: true, skipEmptyLines: true, dynamicTyping: false }).data;
+      finderIsStreaming = file.size > FINDER_STREAMING_THRESHOLD;
+      const preview = await parseCsvPreview(file, 5000);
+      const previewRows = preview.data || [];
+      finderIndustries = [...new Set(previewRows.map(r => (r['informalIndustry'] || '').trim()).filter(Boolean))].sort();
+
+      if (finderIsStreaming) {
+        document.getElementById('finder-load-status').innerHTML =
+          `<div class="status info" style="margin-top:8px">Loaded preview of ${previewRows.length.toLocaleString()} rows from ${Math.round(file.size / (1024 * 1024))} MB CSV. Full search will stream the file in chunks for large-dataset support.</div>`;
+      } else {
+        const parsed = await parseCsvFile(file);
+        finderDf = parsed.data || [];
+        document.getElementById('finder-load-status').innerHTML =
+          `<div class="status info" style="margin-top:8px">Loaded ${finderDf.length.toLocaleString()} rows &nbsp;·&nbsp; ${Object.keys(finderDf[0] || {}).length} columns</div>`;
+      }
     }
-    finderDf = rows;
-    finderIndustries = [...new Set(rows.map(r => (r['informalIndustry'] || '').trim()).filter(Boolean))].sort();
+
     document.getElementById('finder-file-text').textContent = '✅ ' + file.name;
-    document.getElementById('finder-load-status').innerHTML =
-      `<div class="status info" style="margin-top:8px">Loaded ${rows.length.toLocaleString()} rows &nbsp;·&nbsp; ${Object.keys(rows[0] || {}).length} columns</div>`;
     document.getElementById('finder-query-card').style.display = 'block';
+    setStatus('finder-status', finderIsStreaming
+      ? 'ℹ Large file mode enabled. Search will process the full CSV in streaming mode.'
+      : 'ℹ File loaded. You can run your search now.', 'info');
   } catch (e) {
     document.getElementById('finder-file-text').textContent = 'Click or drag & drop CSV or Excel file';
     setStatus('finder-status', '❌ Failed to load file: ' + e.message, 'error');
@@ -766,7 +860,7 @@ function finderShowIndustries() {
   const el = document.getElementById('finder-industry-browser');
   if (!finderIndustries.length) {
     el.style.display = 'block';
-    el.innerHTML = '<p style="font-size:12px;color:#64748b;padding:8px 0">No industries found in the loaded data.</p>';
+    el.innerHTML = '<p style="font-size:12px;color:#64748b;padding:8px 0">No industries found in the sample rows yet. You can still type an industry manually.</p>';
     return;
   }
   el.style.display = 'block';
@@ -780,7 +874,7 @@ function finderShowIndustries() {
 }
 
 function finderAddIndustry(ind) {
-  const el  = document.getElementById('finder-industry-input');
+  const el = document.getElementById('finder-industry-input');
   const cur = el.value.trim();
   if (!cur) el.value = ind;
   else if (!cur.split(';').map(s => s.trim()).includes(ind)) el.value = cur + '; ' + ind;
@@ -788,53 +882,68 @@ function finderAddIndustry(ind) {
 
 function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
-function runFinder() {
-  if (!finderDf) return;
-  const locQuery = document.getElementById('finder-location-input').value.trim();
-  if (!locQuery) { setStatus('finder-status', '⚠ Please enter at least one location.', 'warning'); return; }
+async function runFinder() {
+  if (!finderFile && !finderDf) return;
+  const btn = document.getElementById('finder-run-btn');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Searching…'; }
 
-  const locItems = locQuery.split(';').map(s => s.trim()).filter(Boolean);
-  const locPat   = new RegExp('\\b(' + locItems.map(escapeRegex).join('|') + ')\\b');
-
-  let filtered = finderDf.filter(row => locPat.test(String(row['Location'] || '')));
-
-  const indQuery = document.getElementById('finder-industry-input').value.trim();
-  if (indQuery) {
-    const indItems = indQuery.split(';').map(s => s.trim()).filter(Boolean);
-    if (indItems.length) {
-      const indPat = new RegExp('\\b(' + indItems.map(escapeRegex).join('|') + ')\\b', 'i');
-      filtered = filtered.filter(row => indPat.test(String(row['informalIndustry'] || '')));
+  try {
+    const locQuery = document.getElementById('finder-location-input').value.trim();
+    if (!locQuery) {
+      setStatus('finder-status', '⚠ Please enter at least one location.', 'warning');
+      return;
     }
-  }
 
-  const OUTPUT_COLS = [
-    'First Name','Last Name','Email','Phone Number','Company Name',
-    'Website','LinkedIn Profile','Location','Status','Category',
-    'ESP Type','Current Sequence Number','title','emailType',
-    'informalAddress','informalIndustry'
-  ];
-  finderResult = filtered.map(row => {
-    const out = {};
-    for (const col of OUTPUT_COLS) out[col] = row[col] != null ? row[col] : '';
-    return out;
-  });
+    const locItems = locQuery.split(';').map(s => s.trim()).filter(Boolean);
+    const locPat = new RegExp('\\b(' + locItems.map(escapeRegex).join('|') + ')\\b', 'i');
 
-  document.getElementById('finder-stats').innerHTML =
-    makeStat(finderDf.length.toLocaleString(), 'Total rows') +
-    makeStat(filtered.length.toLocaleString(), 'Matches found');
-  document.getElementById('finder-result-section').style.display = 'block';
+    const indQuery = document.getElementById('finder-industry-input').value.trim();
+    const indItems = indQuery ? indQuery.split(';').map(s => s.trim()).filter(Boolean) : [];
+    const indPat = indItems.length ? new RegExp('\\b(' + indItems.map(escapeRegex).join('|') + ')\\b', 'i') : null;
 
-  if (!filtered.length) {
-    setStatus('finder-status', '⚠ No matching rows found. Try broadening your query.', 'warning');
-  } else {
-    setStatus('finder-status', `✅ Found ${filtered.length.toLocaleString()} matching rows.`, 'success');
+    let totalRows = 0;
+    let filtered = [];
+
+    if (finderIsStreaming) {
+      setStatus('finder-status', '⏳ Searching large CSV in streaming mode…', 'info');
+      const result = await streamFilterCsv(finderFile, locPat, indPat);
+      totalRows = result.totalRows;
+      filtered = result.matched;
+    } else {
+      const rows = finderDf || [];
+      totalRows = rows.length;
+      filtered = rows.filter(row => {
+        if (!locPat.test(String(row['Location'] || ''))) return false;
+        if (indPat && !indPat.test(String(row['informalIndustry'] || ''))) return false;
+        return true;
+      }).map(row => {
+        const out = {};
+        for (const col of FINDER_OUTPUT_COLS) out[col] = row[col] != null ? row[col] : '';
+        return out;
+      });
+    }
+
+    finderResult = filtered;
+    document.getElementById('finder-stats').innerHTML =
+      makeStat(totalRows.toLocaleString(), 'Total rows scanned') +
+      makeStat(filtered.length.toLocaleString(), 'Matches found');
+    document.getElementById('finder-result-section').style.display = 'block';
+
+    if (!filtered.length) {
+      setStatus('finder-status', '⚠ No matching rows found. Try broadening your query.', 'warning');
+    } else {
+      setStatus('finder-status', `✅ Found ${filtered.length.toLocaleString()} matching rows.`, 'success');
+    }
+  } catch (e) {
+    setStatus('finder-status', '❌ Search failed: ' + e.message, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔍 Search'; }
   }
 }
 
 function finderDownload() {
   if (finderResult) downloadCsv(finderResult, 'finder_results.csv');
 }
-
 // ──────────────────────────────────────────────────────────────────────────────
 // ZIP CODE EXTRACTOR
 // ──────────────────────────────────────────────────────────────────────────────
@@ -882,6 +991,9 @@ function copyZipResult() {
     document.getElementById('zip-copy-status').innerHTML =
       '<span class="status success" style="display:inline-block;padding:4px 10px">✅ Copied!</span>';
     setTimeout(() => document.getElementById('zip-copy-status').innerHTML = '', 2500);
+  }).catch(err => {
+    document.getElementById('zip-copy-status').innerHTML =
+      `<span class="status error" style="display:inline-block;padding:4px 10px">❌ Copy failed: ${err.message}</span>`;
   });
 }
 
